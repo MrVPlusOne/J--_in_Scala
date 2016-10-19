@@ -1,0 +1,9 @@
+"abstract", "extends", "int", "protected", "this", "boolean", "false", "new", "public", "true"
+"char", "import", "null", "return", "void", "class", "if", "package", "static", "while"
+"else", "instanceof", "private", "super"
+
+aha // this is some comment
+a = 4;
+b + 5 = 3 & 5 ||| 2 * 3; ?*? 4 ~ "13"
+
+,.[{()}]; 'h' 'hi' '\n' '4' '\t' "'\n'"

@@ -18,6 +18,7 @@ trait Ranged{
 sealed trait JToken extends Ranged{
   type V
   def data: V
+  def getRange = range.get
 }
 
 object JToken{
@@ -30,25 +31,12 @@ object JToken{
   case class TChar(data: String) extends JToken {type V = String}
   case class TString(data: String) extends JToken {type V = String}
 
-  case class PositionedToken(token: JToken, start: Int, until: Int)
 }
 
 
 
 /** turn a line of code into tokens */
 object Tokenizer extends JavaTokenParsers {
-  def tokenConstruct[D](constructor: D => JToken) = (p: Position~D~Position) => {
-    p match {
-      case pos1~data~pos2 => PositionedToken(constructor(data), pos1.column, pos2.column)
-    }
-  }
-  val tOp = tokenConstruct(TOp)
-  val tReserve = tokenConstruct(TReserve)
-  val tIdentifier = tokenConstruct(TIdentifier)
-  val tSep = tokenConstruct(TSep)
-  val tChar = tokenConstruct(TChar)
-  val tString = tokenConstruct(TString)
-  val tInt = tokenConstruct(TInt)
 
   /** `ranged` decorates a parser's result with the start and end position of the
     *  input it consumed.
@@ -58,54 +46,47 @@ object Tokenizer extends JavaTokenParsers {
     *         result with the start and end position of the input it consumed,
     *         if it didn't already have a position.
     */
-  def ranged[T <: Ranged](p: => Parser[T]): Parser[T] = Parser { in =>
+  private def ranged[T <: Ranged](p: => Parser[T]): Parser[T] = Parser { in =>
     p(in) match {
       case Success(t, in1) => Success(t.withRange(in.pos.column, in1.pos.column), in1)
       case ns: NoSuccess => ns
     }
   }
 
-  def withPos = new Parser[Position]{
-    override def apply(in: Input): ParseResult[Position] = success(in.pos)(in)
-  }
 
   def pOp = ranged{ JOp.operatorRegex filter(d => !d.startsWith("//")) map TOp }
 
-//  def pOp = JOp.operatorRegex flatMap {
-//    data=>
-//      if (data.startsWith("//")) failure("operator can't start with //")
-//      else success(TOp(data))
-//  }
+  def pComment: Parser[String] = """//.*""".r withFailureMessage "illegal token found" // Have to put error message here for it to work
 
-  def pComment: Parser[String] = """//.*""".r
+  def pIdentifier = ranged( ident ^^ { l => JKeyword.string2keyword.get(l) match {
+    case Some(kv) => TReserve(kv)
+    case None => TIdentifier(l)
+  }} )
 
-  def pIdentifier = withPos ~ ident ~ withPos ^^ { case data @ p1 ~ l ~ p2 =>
-    JKeyword.string2keyword.get(l) match {
-      case Some(kv) => tReserve(this.~(this.~(p1, kv), p2))
-      case None => tIdentifier(data)
-    }
-  }
 
-  def pSep = withPos ~ """[,.{()};\[\]]""".r ~ withPos ^^ tSep
+  def pSep = ranged( """[,.{()};\[\]]""".r ^^ TSep)
 
 //  private val ESC = """(\\[nrtbf’"\\])"""
 
-  def pCharLiteral = withPos ~ ("""'((\\[nrtb'"\\])|[^'\\\n])'""".r ^^ {s => s.substring(1, s.length-1)}) ~ withPos ^^ tChar
+  def pCharLiteral = ranged( """'((\\[nrtb'"\\])|[^'\\\n])'""".r ^^ {s => TChar(s.substring(1, s.length-1))} )
 
-  def pStringLiteral = withPos ~ stringLiteral ~ withPos ^^ tString
+  def pStringLiteral = ranged(stringLiteral ^^ TString)
 
-  def pIntLiteral = withPos ~ wholeNumber ~ withPos ^^ {case p1 ~ s ~ p2 => tInt(this.~(this.~(p1, s.toInt), p2))}
+  def pIntLiteral = ranged( wholeNumber ^^ (s => TInt(s.toInt)))
 
-  def pToken = rep(pIdentifier | pSep | pOp | pIntLiteral | pStringLiteral | pCharLiteral) <~ pComment.?
+  def pToken = pIdentifier | pSep | pOp | pIntLiteral | pStringLiteral | pCharLiteral
 
-  def tokenizeALine(line: CharSequence, shift: Int): ParseResult[Stream[PositionedToken]] = {
+  def pLine = rep(pToken) <~ pComment.?
+
+
+  def tokenizeALine(line: CharSequence, shift: Int): ParseResult[Stream[JToken]] = {
     val reader = new ShiftReader(line, shift)
-    parseAll(pToken, reader).map(_.toStream)
+    parseAll(pLine, reader).map(_.toStream)
   }
 
 
-  def tokenizeSource(lines: Iterator[CharSequence]): Either[(String, Int), Iterable[PositionedToken]] = {
-    var result = ListBuffer[PositionedToken]()
+  def tokenizeSource(lines: Iterator[CharSequence]): Either[(String, Int), Iterable[JToken]] = {
+    var result = ListBuffer[JToken]()
     var shift = 0
     lines.foreach(line => {
       val r = tokenizeALine(line, shift)

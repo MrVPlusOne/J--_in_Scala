@@ -56,7 +56,7 @@ class CodePane {
 
     Tokenizer.tokenizeSource(code.lines) match {
       case Right(tokens) => tokens.foreach(t =>{
-        val colorAttribute = t.token match{
+        val colorAttribute = t match{
           case _: TReserve => reserveColor
           case _: TInt => intColor
           case _: TString => stringColor
@@ -65,7 +65,8 @@ class CodePane {
           case _: TOp => opColor
           case _ => basicColor
         }
-        setAttr(colorAttribute, t.start, t.until-t.start, replace = false)
+        val (start, until) = t.getRange
+        setAttr(colorAttribute, start, until-start, replace = false)
       })
       case Left((msg, offset)) =>
         setAttr(errorColor, offset, code.length, replace = false)
@@ -91,8 +92,12 @@ object CodePane {
 
 
   def main(args: Array[String]): Unit = {
+    import scala.io.Source
+
     val frame = new JFrame(){
       val codePane = new CodePane()
+      val textCode = ""
+      codePane.pane.setText(Source.fromFile("tests/pass/Animalia.java").mkString)
       setContentPane(new JScrollPane(codePane.pane) { setPreferredSize(new Dimension(600,600)) })
 
       setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE)

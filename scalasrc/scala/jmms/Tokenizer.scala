@@ -6,7 +6,16 @@ import scala.util.parsing.input.{CharSequenceReader, OffsetPosition, Position}
 import JToken._
 
 
-sealed trait JToken{
+trait Ranged{
+  var range: Option[(Int,Int)] = None
+  def withRange(start: Int, end: Int): this.type = {
+    if(range.isEmpty)
+      range = Some((start, end))
+    this
+  }
+}
+
+sealed trait JToken extends Ranged{
   type V
   def data: V
 }
@@ -41,17 +50,32 @@ object Tokenizer extends JavaTokenParsers {
   val tString = tokenConstruct(TString)
   val tInt = tokenConstruct(TInt)
 
-
+  /** `ranged` decorates a parser's result with the start and end position of the
+    *  input it consumed.
+    *
+    * @param p a `Parser` whose result conforms to `Ranged`.
+    * @return A parser that has the same behaviour as `p`, but which marks its
+    *         result with the start and end position of the input it consumed,
+    *         if it didn't already have a position.
+    */
+  def ranged[T <: Ranged](p: => Parser[T]): Parser[T] = Parser { in =>
+    p(in) match {
+      case Success(t, in1) => Success(t.withRange(in.pos.column, in1.pos.column), in1)
+      case ns: NoSuccess => ns
+    }
+  }
 
   def withPos = new Parser[Position]{
     override def apply(in: Input): ParseResult[Position] = success(in.pos)(in)
   }
 
-  def pOp = withPos ~ JOp.operatorRegex ~ withPos flatMap {
-    case data@ _ ~ op ~ _ =>
-      if (op.startsWith("//")) failure("operator can't start with //")
-      else success(tOp(data))
-  }
+  def pOp = ranged{ JOp.operatorRegex filter(d => !d.startsWith("//")) map TOp }
+
+//  def pOp = JOp.operatorRegex flatMap {
+//    data=>
+//      if (data.startsWith("//")) failure("operator can't start with //")
+//      else success(TOp(data))
+//  }
 
   def pComment: Parser[String] = """//.*""".r
 

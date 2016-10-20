@@ -1,9 +1,9 @@
 package jmms
 
-import scala.collection.mutable.ListBuffer
 import scala.util.parsing.combinator.JavaTokenParsers
-import scala.util.parsing.input.{CharSequenceReader, OffsetPosition, Position}
 import JToken._
+
+import scala.util.parsing.input.CharSequenceReader
 
 
 trait Ranged{
@@ -48,15 +48,29 @@ object Tokenizer extends JavaTokenParsers {
     */
   private def ranged[T <: Ranged](p: => Parser[T]): Parser[T] = Parser { in =>
     p(in) match {
-      case Success(t, in1) => Success(t.withRange(in.pos.column, in1.pos.column), in1)
+      case Success(t, in1) => Success(t.withRange(in.offset, in1.offset), in1)
       case ns: NoSuccess => ns
     }
   }
 
 
-  def pOp = ranged{ JOp.operatorRegex filter(d => !d.startsWith("//")) map TOp }
+  def pOp = ranged{ JOp.operatorRegex filter(d => !d.startsWith("//") && !d.startsWith("/*")) map TOp }
 
-  def pComment: Parser[String] = """//.*""".r withFailureMessage "illegal token found" // Have to put error message here for it to work
+  def pSingleComment: Parser[String] = """//[^\n]*""".r
+
+  def blockBody(in: Input): ParseResult[String] = {
+    val start = in.offset
+    val len = in.source.length()
+    var i = start
+    while (i < len - 1) {
+      if (in.source.charAt(i) == '*' && in.source.charAt(i + 1) == '/')
+        return Success(in.source.subSequence(in.offset, i).toString, in.drop(i - start + 2))
+      i += 1
+    }
+    Failure("Block comment is not closed", in)
+  }
+
+  def pBlockComment: Parser[String] = "/*" ~! Parser[String](blockBody) ^^ {case _ ~ c => c}
 
   def pIdentifier = ranged( ident ^^ { l => JKeyword.string2keyword.get(l) match {
     case Some(kv) => TReserve(kv)
@@ -68,32 +82,27 @@ object Tokenizer extends JavaTokenParsers {
 
 //  private val ESC = """(\\[nrtbf’"\\])"""
 
-  def pCharLiteral = ranged( """'((\\[nrtb'"\\])|[^'\\\n])'""".r ^^ {s => TChar(s.substring(1, s.length-1))} )
+  def pCharLiteral = ranged( """'((\\[nrtb'"\\])|[^'\\\n])'""".r ^^
+    {s => TChar(s.substring(1, s.length-1))} ) withFailureMessage  "Char literal expected"
 
   def pStringLiteral = ranged(stringLiteral ^^ TString)
 
   def pIntLiteral = ranged( wholeNumber ^^ (s => TInt(s.toInt)))
 
-  def pToken = pIdentifier | pSep | pOp | pIntLiteral | pStringLiteral | pCharLiteral
+  def pToken = pIdentifier | pSep | pOp | pIntLiteral | pStringLiteral | pCharLiteral | failure("token expected")
 
-  def pLine = rep(pToken) <~ pComment.?
+  def pLine = rep(pToken) <~ pSingleComment.?
+
+  def pSource = rep(pToken | pBlockComment | pSingleComment) map (r => {
+    r.collect{ case tk: JToken => tk }
+  })
 
 
-  def tokenizeALine(line: CharSequence, shift: Int): ParseResult[Stream[JToken]] = {
-    val reader = new ShiftReader(line, shift)
-    parseAll(pLine, reader).map(_.toStream)
+  def tokenizeSource(source: CharSequence): Either[(String, Int), Iterable[JToken]] = {
+    val reader = new CharSequenceReader(source, 0)
+    val r = parseAll(pSource, reader)
+    if(r.successful) Right(r.get)
+    else Left(r.toString, r.next.pos.column)
   }
 
-
-  def tokenizeSource(lines: Iterator[CharSequence]): Either[(String, Int), Iterable[JToken]] = {
-    var result = ListBuffer[JToken]()
-    var shift = 0
-    lines.foreach(line => {
-      val r = tokenizeALine(line, shift)
-      shift += line.length()+1 // new line at the end also counts
-      if(r.successful) result ++= r.get
-      else return Left(r.toString, r.next.pos.column)
-    })
-    Right(result)
-  }
 }

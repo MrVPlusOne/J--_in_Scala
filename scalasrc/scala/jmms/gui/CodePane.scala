@@ -54,7 +54,7 @@ class CodePane {
 
     setAttr(commentColor, 0, document.getLength, replace = false)
 
-    Tokenizer.tokenizeSource(code.lines) match {
+    Tokenizer.tokenizeSource(code) match {
       case Right(tokens) => tokens.foreach(t =>{
         val colorAttribute = t match{
           case _: TReserve => reserveColor

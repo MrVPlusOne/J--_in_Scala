@@ -9,7 +9,7 @@ class TokenizerTests extends MyTest {
   "tokenizer" should {
     "successfully parse all test source files" in {
       passSources.foreach(s =>{
-        Tokenizer.tokenizeSource(s.getLines())
+        Tokenizer.tokenizeSource(s.mkString).isRight
       })
 
     }

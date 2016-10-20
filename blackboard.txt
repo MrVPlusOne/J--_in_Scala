@@ -2,6 +2,9 @@
 "char", "import", "null", "return", "void", "class", "if", "package", "static", "while"
 "else", "instanceof", "private", "super"
 
+/* some block
+ code here */
+
 aha // this is some comment
 a = 4;
 b + 5 = 3 & 5 ||| 2 * 3; ?*? 4 ~ "13"

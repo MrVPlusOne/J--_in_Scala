@@ -28,8 +28,10 @@ public class Series {
     }
 
     public int computeSum(int kind) {
-        int sum = a, t = a, i = n;
-        while (i-- > 1) {
+        int sum = a;
+        int t = a;
+        int i = n;
+        while (i-=1 > 1) {
             if (kind == ARITHMETIC) {
                 t += d;
             } else if (kind == GEOMETRIC) {

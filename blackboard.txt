@@ -10,3 +10,6 @@ a = 4;
 b + 5 = 3 & 5 ||| 2 * 3; ?*? 4 ~ "13"
 
 ,.[{()}]; 'h' 'hi' '\n' '4' '\t' "'\n'"
+
+BinaryExpr(TOp(*),UnaryNegate(QualifiedIdent(Vector(TIdentifier(a)))),BasicCast(TReserve(k_int),BinaryExpr(TOp(+),QualifiedIdent(Vector(TIdentifier(b))),QualifiedIdent(Vector(TIdentifier(A), TIdentifier(c))))))
+BinaryExpr(TOp(*),UnaryNegate(QualifiedIdent(Vector(TIdentifier(a)))),BasicCast(TReserve(k_int),BinaryExpr(TOp(+),QualifiedIdent(Vector(TIdentifier(b))),QualifiedIdent(Vector(TIdentifier(A.c))))))

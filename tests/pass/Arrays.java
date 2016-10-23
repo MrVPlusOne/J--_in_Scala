@@ -6,7 +6,7 @@ import java.lang.System;
 
 public class Arrays {
 
-    int[] ia = { 1, 2, 3, (int) '4' }; '\n'
+    int[] ia = { 1, 2, 3, (int) '4' };
 
     int[] ia2 = { 3, 4, 5, 6, 7 };
 

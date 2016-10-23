@@ -3,33 +3,60 @@ package jmms
 import scala.util.parsing.combinator.JavaTokenParsers
 import JToken._
 
-import scala.util.parsing.input.CharSequenceReader
+import scala.util.parsing.input.{CharSequenceReader, NoPosition, Position}
 
 
 trait Ranged{
   var range: Option[(Int,Int)] = None
-  def withRange(start: Int, end: Int): this.type = {
-    if(range.isEmpty)
+  var pos: Position = NoPosition
+  def withRange(start: Int, end: Int, pos: Position): this.type = {
+    if(range.isEmpty){
       range = Some((start, end))
+      this.pos = pos
+    }
     this
   }
 }
 
-sealed trait JToken extends Ranged{
+sealed trait JToken extends Ranged with SyntaxTree{
   type V
   def data: V
-  def getRange = range.get
+
+  override def getRange = range
+
+  override def children: IndexedSeq[SyntaxTree] = IndexedSeq()
+
+  override def nodeName: String = toString
 }
 
 object JToken{
   case class TOp(data: String) extends JToken {type V = String}
-  case class TSep(data: String) extends JToken {type V = String}
+  case class TSep(data: String) extends JToken {
+    type V = String
+  }
   case class TReserve(data: JKeyword.Value) extends JToken {type V = JKeyword.Value}
   case class TIdentifier(data: String) extends JToken {type V = String}
 
   case class TInt(data: Int) extends JToken {type V = Int}
   case class TChar(data: String) extends JToken {type V = String}
   case class TString(data: String) extends JToken {type V = String}
+  case object EndOfTokens extends JToken {
+    object EndPos extends Position {
+      override def column: Int = -1
+
+      override def line: Int = -1
+
+      override protected def lineContents: String = "<End>"
+
+      override def longString: String = "<End>"
+
+      override def toString(): String = "<End>"
+    }
+
+    type V = Unit
+    def data = Unit
+    pos = EndPos
+  }
 
 }
 
@@ -48,7 +75,7 @@ object Tokenizer extends JavaTokenParsers {
     */
   private def ranged[T <: Ranged](p: => Parser[T]): Parser[T] = Parser { in =>
     p(in) match {
-      case Success(t, in1) => Success(t.withRange(in.offset, in1.offset), in1)
+      case Success(t, in1) => Success(t.withRange(in.offset, in1.offset, in.pos), in1)
       case ns: NoSuccess => ns
     }
   }
@@ -97,12 +124,11 @@ object Tokenizer extends JavaTokenParsers {
     r.collect{ case tk: JToken => tk }
   })
 
-
   def tokenizeSource(source: CharSequence): Either[(String, Int), Iterable[JToken]] = {
     val reader = new CharSequenceReader(source, 0)
     val r = parseAll(pSource, reader)
     if(r.successful) Right(r.get)
-    else Left(r.toString, r.next.pos.column)
+    else Left(r.toString, r.next.offset)
   }
 
 }

@@ -7,8 +7,9 @@ import scala.io.Source
   */
 object Test {
   def main(args: Array[String]): Unit = {
-    val r = Tokenizer.tokenizeSource(Source.fromFile("tests/pass/Animalia.java").mkString)
-    println(r)
+    val src = "hello"
+
+    SyntaxParser.parseSource(SyntaxParser.pIdent, "hello")
 
   }
 }

@@ -17,6 +17,11 @@ trait Ranged{
     this
   }
 
+  def withRangeOf(ranged: Ranged): this.type = {
+    val (start, until) = ranged.getRange
+    withRange(start, until, ranged.pos)
+  }
+
   def getRange = range.get
 
   def rangeSize = {

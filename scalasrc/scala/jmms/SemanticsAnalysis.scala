@@ -1,16 +1,16 @@
 package jmms
 
-import SemanticsParser._
 import jmms.JToken.{TIdentifier, TReserve}
+import jmms.SBasicType._
+import jmms.STyped.{BlockContext, SBlock}
+import jmms.SemanticsAnalysis._
 import jmms.SemanticsTree._
 import jmms.SyntaxTree._
-import jmms.SBasicType._
 
 import scala.collection.mutable.ListBuffer
-import scala.util.parsing.input.Position
 
 
-class SemanticsParser {
+class SemanticsAnalysis {
 
   private val errorList = ListBuffer[SemanticError]()
 
@@ -26,7 +26,7 @@ class SemanticsParser {
     * then incorporate them into the `TypeContext` provided, and return the new context.
     * Methods declarations are also added to the `InternalType`s created.
     */
-  def parseTypeContext(compilationUnit: CompilationUnit, context: TypeContext): TypeContext = {
+  def analyzeTypeContext(compilationUnit: CompilationUnit, context: TypeContext): SPackage = {
     val pkgDotName = compilationUnit.packageDeclaration.toDotPath
     var fileContext = compilationUnit.imports.foldLeft(context){
       case (ctx, im) => ctx.resolve(im) match{
@@ -49,13 +49,15 @@ class SemanticsParser {
           classDeclsToUse += dc
         }
       }
-      classDeclsToUse
+      classDeclsToUse.toIndexedSeq
     }
 
     // add classes defined in this file to fileContext
-    fileContext ++= newClasses.map { dc => InternalType(pkgDotName, dc.name.data)}
+    fileContext ++= newClasses.map { dc =>
+      InternalType(pkgDotName, dc.name.data, dc.modifiers.isAbstract)
+    }
 
-    newClasses.foreach( dc => {
+    val classes = newClasses.map( dc => {
       val cl = fileContext.resolve(QualifiedIdent(dc.name)).get.asInstanceOf[InternalType]
 
       // set up superclasses
@@ -79,38 +81,35 @@ class SemanticsParser {
       dc.body.foreach{
         case (modifiers, member) =>
           val isStatic = modifiers.children.contains(TReserve(JKeyword.k_static))
-
-          def resolveParams(formalParams: IndexedSeq[FormalParameter]): Option[IndexedSeq[SType]] = {
-            Some(formalParams.map{
-              case SyntaxTree.FormalParameter(jt, pName) =>
-                fileContext.resolve(jt) match {
-                  case None =>
-                    newError("Can't resolve parameter type", jt)
-                    return None
-                  case Some(t) => t
-                }
-            })
-          }
+          val isAbstract = modifiers.children.contains(TReserve(JKeyword.k_abstract))
 
           member match {
-            case FieldMemberDecl(VarDecl(FormalParameter(jt, n), _)) =>
+            case FieldMemberDecl(VarDecl(FormalParameter(jt, n), initializer)) =>
               cl.getField(n.data) match {
                 case Some(_) => newError(s"Field with name ${n.data} already defined", n)
                 case None =>
                   fileContext.resolve(jt) match {
-                    case Some(t) => cl.mkNewField(FieldSignature(n.data, t, isStatic))
+                    case Some(t) =>
+                      val field = InternalField(FieldSignature(n.data, cl, t, isStatic))
+                      cl.mkNewField(field)
                     case None => newError(s"Can't resolve filed type", jt)
                   }
               }
-            case MethodMemberDecl(reJT, name, formalParams, _) =>
-              resolveParams(formalParams).foreach { params =>
+            case MethodMemberDecl(reJT, name, formalParams, body) =>
+              resolveParams(formalParams, fileContext).foreach { params =>
                 if (cl.getMethod(name.data, params).isDefined) {
                   newError("Method with the same signature already defined", name)
                 } else {
                   fileContext.resolve(reJT) match {
                     case None => newError("Can't resolve method return type", reJT)
                     case Some(rt) =>
-                      cl.mkNewMethod(MethodSignature(name.data, params, rt, isStatic))
+                      if(! isAbstract && body.isEmpty)
+                        newError("non-abstract method must have a body", member)
+                      val method = InternalMethod(
+                        MethodSignature(name.data, params, rt, isStatic),
+                        body
+                      )
+                      cl.mkNewMethod(method)
                   }
                 }
               }
@@ -118,87 +117,67 @@ class SemanticsParser {
             case ConstructorDecl(name, formalParameters, _) =>
               if(name != dc.name){
                 newError("method should have return type", name)
-              }else resolveParams(formalParameters).foreach { params =>
+              }else resolveParams(formalParameters, fileContext).foreach { params =>
                 if(cl.getConstructor(params).isDefined)
                   newError("Constructor with the same signature already defined", name)
                 else
-                  cl.mkNewConstructor(ConstructorSignature(params))
+                  cl.mkNewConstructor(InternalConstructor(ConstructorSignature(params)))
               }
           }
       }
+      cl
     })
 
-    fileContext
+    SPackage(classes, fileContext)
   }
 
-  def semanticAnalysis(compilationUnit: CompilationUnit, context: TypeContext): SemanticsTree = {
-    ???
+  def resolveParams(formalParams: IndexedSeq[FormalParameter], typeContext: TypeContext): Option[IndexedSeq[SType]] = {
+    Some(formalParams.map{
+      case SyntaxTree.FormalParameter(jt, pName) =>
+        typeContext.resolve(jt) match {
+          case None =>
+            newError("Can't resolve parameter type", jt)
+            return None
+          case Some(t) => t
+        }
+    })
   }
+
+  def fullyAnalyze(sPackage: SPackage) {
+    val typeContext = sPackage.typeContext
+    sPackage.classes.foreach(ty => {
+      ty.localStaticMethods.values.foreach(sm => {
+        sm.sBlock = try {
+          sm.impl.map{ jBlock =>
+            SBlock.apply(jBlock, BlockContext(typeContext, Map(), 0, thisType = ty , isStatic = false))
+          }
+        } catch {
+          case e: SemanticError =>
+            errorList += e
+            None
+        }
+      })
+    })
+  }
+
+
 }
 
-object SemanticsParser{
+object SemanticsAnalysis{
 
-  case class SemanticError(msg: String, parts: Seq[SyntaxTree]){
+  case class SemanticError(msg: String, parts: Seq[Ranged]) extends Throwable{
     def print(): Unit = {
       println(msg)
       parts.foreach(p => println(p.pos.longString))
     }
   }
 
-  case class TypeContext(locals: Map[String, SRefType], loadExt: String => Option[SRefType]) {
-    def resolve(qualifiedIdent: QualifiedIdent): Option[SRefType] = {
-      val path = qualifiedIdent.toDotPath
-      locals.get(path) match{
-        case None => loadExt(path)
-        case Some(t) => Some(t)
-      }
-    }
-
-    def resolve(jType: JType): Option[SType] = {
-      jType match {
-        case JBasicType(TReserve(k)) => k match {
-          case JKeyword.k_char => Some(SChar)
-          case JKeyword.k_int => Some(SInt)
-          case JKeyword.k_boolean => Some(SBoolean)
-          case JKeyword.k_void => Some(SVoid)
-          case _ => None
-        }
-        case BasicTypeArray(t: JBasicType, arrayDimensions: Int) =>
-          for{
-            b <- resolve(t)
-            t <- loadExt("["*arrayDimensions + b.className)
-          } yield t
-        case RefTypeOrArray(q, dim) =>
-          if(dim == 0)
-            resolve(q)
-          else{
-            resolve(q).flatMap{ b =>
-              loadExt("[" * dim + b.className)
-            }
-          }
-
-      }
-    }
-
-    def +(s: SRefType) = {
-      TypeContext(locals + (s.dotName -> s) + (s.simpleName -> s), loadExt)
-    }
-
-    def ++(ss: Seq[SRefType]) = {
-      val newLocals = locals ++ ss.map(s => s.dotName -> s) ++ ss.map(s => s.simpleName -> s)
-      TypeContext(newLocals, loadExt)
+  object SemanticError{
+    def apply(msg: String, part1: Ranged, parts: Ranged*): SemanticError = {
+      new SemanticError(msg, part1 +: parts)
     }
   }
 
-  object TypeContext{
-    def empty() = TypeContext(Map(), name => {
-      try {
-        Some(ExternalType(Class.forName(name)))
-      } catch {
-        case _: ClassNotFoundException => None
-      }
-    })
-  }
 
   def loadClassFromCurrentPath(name: String): Option[SRefType] = {
     try{

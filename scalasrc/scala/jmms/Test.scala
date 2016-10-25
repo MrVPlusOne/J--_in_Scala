@@ -9,6 +9,52 @@ import scala.io.Source
   */
 object Test {
   def main(args: Array[String]): Unit = {
+    import jmms.{ExternalType, SemanticsAnalysis, SyntaxParser, TypeContext}
+    import jmms.SBasicType.{SBoolean, SInt}
+
+    def fullAnalyze(code: String) = {
+      val semanP = new SemanticsAnalysis()
+      val r = SyntaxParser.parsePackage(code)
+
+      val sPackage = semanP.analyzeTypeContext(r, TypeContext.empty())
+      semanP.fullyAnalyze(sPackage)
+      assert(semanP.currentErrors().isEmpty, semanP.currentErrors().foreach(_.print()))
+      sPackage
+    }
+
+    val src =
+      """
+        |package Main;
+        |import java.lang.String;
+        |
+        |class A {
+        |  public static void main(int arg){
+        |    int a = 3;
+        |    a = a + 2;
+        |  }
+        |
+        |  static int fib(int n){
+        |    if(n<2)
+        |      return 1;
+        |    else
+        |      return fib(n-1) + fib(n-2);
+        |  }
+        |
+        |  private String jump(int height){
+        |    return height.toString();
+        |  }
+        |
+        |  public static boolean cool = true;
+        |
+        |  public A(boolean cool){
+        |    this.cool = cool;
+        |  }
+        |}
+      """.stripMargin
+
+    val sPackage = fullAnalyze(src)
+    val sb = sPackage.classes.head.localStaticMethods.values.head.sBlock
+    println(sb)
 
   }
 
@@ -30,4 +76,5 @@ object Test {
 
     classFile.writeToFile("./Test.class")
   }
+
 }

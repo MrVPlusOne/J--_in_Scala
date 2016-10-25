@@ -41,6 +41,10 @@ object SyntaxTree{
 
   case class Modifiers(children: IndexedSeq[TReserve]) extends SyntaxTree{
     override def nodeName: String = "Modifiers"
+
+    def isAbstract = children contains TReserve(JKeyword.k_abstract)
+
+    def isStatic = children contains TReserve(JKeyword.k_static)
   }
 
   /** declaration of a class */
@@ -191,6 +195,7 @@ object SyntaxTree{
     override def toString: String = s"array type '$t${"[]"*arrayDimensions}'"
   }
 
+
   /** a reference type, possibly an array */
   case class RefTypeOrArray(ty: QualifiedIdent, arrayDimensions: Int) extends JType{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(ty)
@@ -224,7 +229,7 @@ object SyntaxTree{
       override def nodeName: String = "this"
     }
 
-    case class JCreator(refTypeOrArray: JType, args: JArguments) extends JExpr{
+    case class JCreator(refTypeOrArray: JType, args: JArguments) extends JExpr {
       override def children: IndexedSeq[SyntaxTree] = IndexedSeq(refTypeOrArray, args)
 
       override def nodeName: String = "Creator"
@@ -263,7 +268,7 @@ object SyntaxTree{
       override def nodeName: String = "Ref Cast"
     }
 
-    case class MethodCall(f: JExpr, args: JArguments, isSuper: Boolean = false) extends JExpr{
+    case class MethodCall(f: QualifiedIdent, args: JArguments, isSuper: Boolean = false) extends JExpr{
       override def children: IndexedSeq[SyntaxTree] = IndexedSeq(f,args)
 
       override def nodeName: String = "Method Call"

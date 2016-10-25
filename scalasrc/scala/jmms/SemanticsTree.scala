@@ -1,5 +1,8 @@
 package jmms
 
+import jmms.STyped.SBlock
+import jmms.SyntaxTree._
+
 /**
   * Semantics-level representation of the program
   */
@@ -9,10 +12,10 @@ sealed trait SemanticsTree {
 
 object SemanticsTree {
 
-  case class SPackage(classes: InternalType) extends SemanticsTree{
+  case class SPackage(classes: IndexedSeq[InternalType], typeContext: TypeContext) extends SemanticsTree{
   }
 
-  case class InternalType(pkg: String, simpleName: String) extends SemanticsTree with SRefType {
+  case class InternalType(pkg: String, simpleName: String, isAbstract: Boolean) extends SemanticsTree with SRefType {
 
     override val dotName: String = pkg + "." + simpleName
 
@@ -28,20 +31,23 @@ object SemanticsTree {
 
     var constructors: Map[IndexedSeq[SType], InternalConstructor] = Map()
 
-    def mkNewField(signature: FieldSignature): Unit = {
-      val m = signature.name -> InternalField(signature)
+    def mkNewField(field: InternalField): Unit = {
+      val signature = field.signature
+      val m = signature.name -> field
       if (signature.isStatic) localStaticFields += m
       else localInstanceFields += m
     }
 
-    def mkNewMethod(signature: MethodSignature): Unit = {
-      val m = (signature.name, signature.args) -> InternalMethod(signature)
+    def mkNewMethod(method: InternalMethod): Unit = {
+      val signature = method.signature
+      val m = (signature.name, signature.args) -> method
       if(signature.isStatic) localStaticMethods += m
       else localInstanceMethods += m
     }
 
-    def mkNewConstructor(signature: ConstructorSignature): Unit ={
-      constructors += signature.args -> InternalConstructor(signature)
+    def mkNewConstructor(cs: InternalConstructor): Unit = {
+      val signature = cs.signature
+      constructors += signature.args -> cs
     }
 
     override def toString: String = {
@@ -66,9 +72,10 @@ object SemanticsTree {
     }
   }
 
-  case class InternalMethod(signature: MethodSignature) extends SemanticsTree {
-
+  case class InternalMethod(signature: MethodSignature, impl: Option[Block]) extends SemanticsTree {
+    var sBlock: Option[SBlock] = None
   }
+
 
   case class InternalField(signature: FieldSignature) extends SemanticsTree {
 
@@ -79,4 +86,5 @@ object SemanticsTree {
   }
 
   case class SField()
+
 }

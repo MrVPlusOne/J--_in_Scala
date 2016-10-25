@@ -1,7 +1,6 @@
 package jmm_tests
 
 import jmms.SBasicType._
-import jmms.SemanticsParser.TypeContext
 import jmms.SemanticsTree.InternalType
 import jmms._
 
@@ -11,10 +10,10 @@ import jmms._
 class SemanticTests extends MyTest{
   "Internal Type" should{
     "answer inheritance relation" in {
-      val a = InternalType("pkg","A")
+      val a = InternalType("pkg","A", isAbstract = false)
       assert(a.isChildOf(a))
 
-      val b = InternalType("pkg", "B")
+      val b = InternalType("pkg", "B", isAbstract = false)
       b.superClass = Some(a)
 
       assert(b.isChildOf(a))
@@ -32,12 +31,12 @@ class SemanticTests extends MyTest{
 
   "Source File Context parsing" should{
     def parseContext(code: String) = {
-      val semanP = new SemanticsParser()
+      val semanP = new SemanticsAnalysis()
       val r = SyntaxParser.parsePackage(code)
 
-      val newContext = semanP.parseTypeContext(r, TypeContext.empty())
+      val sPackage = semanP.analyzeTypeContext(r, TypeContext.empty())
       assert(semanP.currentErrors().isEmpty, "Errors: \n" + semanP.currentErrors().mkString("\n"))
-      newContext
+      sPackage
     }
 
     "correctly resolve java.lang.Object" in {
@@ -108,13 +107,14 @@ class SemanticTests extends MyTest{
           |}
         """.stripMargin
 
-      val ctx = parseContext(src)
+      val sPackage = parseContext(src)
+      val ctx = sPackage.typeContext
 
       val a = ctx.locals("A").asInstanceOf[InternalType]
       a.localStaticMethods("main" -> IndexedSeq(SInt)).signature.returns shouldBe SVoid
-      a.localInstanceFields("a").signature.tpe shouldBe SInt
+      a.localInstanceFields("a").signature.sType shouldBe SInt
       a.localInstanceMethods("jump", IndexedSeq(SInt)).signature.returns shouldBe ExternalType.string
-      a.localStaticFields("cool").signature.tpe shouldBe SBoolean
+      a.localStaticFields("cool").signature.sType shouldBe SBoolean
       assert{ a.constructors.get(IndexedSeq(SBoolean)).isDefined }
     }
   }

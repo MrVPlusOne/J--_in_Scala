@@ -2,6 +2,8 @@ package jmms
 
 import java.lang.reflect.Modifier
 
+import jmms.STyped.SVar
+
 /**
   * The common interface to represent j-- types
   */
@@ -26,6 +28,8 @@ trait SRefType extends SType{
   def superClass: Option[SRefType]
 
   def getField(name: String): Option[FieldSignature]
+
+
   def getMethod(name: String, paramTypes: IndexedSeq[SType]): Option[MethodSignature]
   def getConstructor(paramTypes: IndexedSeq[SType]): Option[ConstructorSignature]
 
@@ -72,7 +76,7 @@ case class ExternalType(repr: Class[_]) extends SRefType{
     try{
       val f = repr.getField(name)
       val isStatic = (f.getModifiers & Modifier.STATIC) != 0
-      Some(FieldSignature(name, ExternalType(f.getType), isStatic))
+      Some(FieldSignature(name, this, ExternalType(f.getType), isStatic))
     }catch {
       case _: Exception => None
     }
@@ -110,8 +114,8 @@ object ExternalType{
   val string = ExternalType(Class.forName("java.lang.String"))
 }
 
+case class FieldSignature(name: String, classType: SRefType, sType: SType, isStatic: Boolean) extends SVar
 
-case class FieldSignature(name: String, tpe: SType, isStatic: Boolean)
 
 case class MethodSignature(name: String, args: IndexedSeq[SType], returns: SType, isStatic: Boolean) {
 

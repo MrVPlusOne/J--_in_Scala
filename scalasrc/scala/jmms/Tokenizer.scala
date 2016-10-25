@@ -16,13 +16,18 @@ trait Ranged{
     }
     this
   }
+
+  def getRange = range.get
+
+  def rangeSize = {
+    val (start, end) = getRange
+    end - start
+  }
 }
 
-sealed trait JToken extends Ranged with SyntaxTree{
+sealed trait JToken extends SyntaxTree{
   type V
   def data: V
-
-  override def getRange = range
 
   override def children: IndexedSeq[SyntaxTree] = IndexedSeq()
 
@@ -40,22 +45,10 @@ object JToken{
   case class TInt(data: Int) extends JToken {type V = Int}
   case class TChar(data: String) extends JToken {type V = String}
   case class TString(data: String) extends JToken {type V = String}
-  case object EndOfTokens extends JToken {
-    object EndPos extends Position {
-      override def column: Int = -1
-
-      override def line: Int = -1
-
-      override protected def lineContents: String = "<End>"
-
-      override def longString: String = "<End>"
-
-      override def toString(): String = "<End>"
-    }
-
+  case class EndOfTokens(srcEnd: Int) extends JToken {
     type V = Unit
     def data = Unit
-    pos = EndPos
+    range = Some((srcEnd, srcEnd))
   }
 
 }

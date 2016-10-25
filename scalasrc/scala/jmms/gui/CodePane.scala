@@ -10,8 +10,7 @@ import jmms.JToken._
 import jmms.SyntaxParser.JTokenReader
 import rx.{Ctx, Rx, Var}
 import RxJComponent._
-
-import scala.util.parsing.input.OffsetPosition
+import jmms.SyntaxTree.{ClassDecl, ConstructorDecl, MethodMemberDecl}
 
 
 /**
@@ -50,7 +49,12 @@ class CodePane(implicit ctx: Ctx.Owner) {
   val locationString = Rx{
     (caretDot(), syntaxTree()) match{
       case (dot, Some(t)) =>
-        SyntaxTree.pathToDotInSrc(t,dot).reverse.map(_.nodeName).mkString(" |> ")
+        val path = SyntaxTree.pathToDotInSrc(t,dot).reverse
+        "Cursor: " + path.collect {
+          case c: ClassDecl => c.name.data
+          case m: MethodMemberDecl => m.name.data
+          case c: ConstructorDecl => "Constructor"
+        }.mkString(" |> ")
       case _ => "Parsing error"
     }
   }
@@ -64,7 +68,7 @@ class CodePane(implicit ctx: Ctx.Owner) {
   }
 
   def callback(): Unit = {
-    import CodePane.{colorAtrr, backgroundAtrr}
+    import CodePane._
     val commentColor = colorAtrr(Color.gray)
     val basicColor = colorAtrr(Color.black)
     val reserveColor = colorAtrr(Color.blue.darker())
@@ -75,11 +79,11 @@ class CodePane(implicit ctx: Ctx.Owner) {
     val charColor = colorAtrr(Color.orange)
     val errorColor = colorAtrr(Color.red)
 
-    val emptyBackground = backgroundAtrr(Color.white)
-    val errorAttr = backgroundAtrr(Color.red)
+//    val emptyBackground = backgroundAtrr(Color.white)
+//    val errorAttr = backgroundAtrr(Color.red)
 
     setAttr(commentColor, 0, document.getLength, replace = true)
-    setAttr(emptyBackground, 0, document.getLength, replace = false)
+//    setAttr(emptyBackground, 0, document.getLength, replace = false)
 
     Tokenizer.tokenizeSource(code) match {
       case Right(tokens) =>
@@ -97,16 +101,15 @@ class CodePane(implicit ctx: Ctx.Owner) {
           setAttr(colorAttribute, start, until - start, replace = false)
         })
 
-        SyntaxParser.parseAll(SyntaxParser.pCompilationUnit ,JTokenReader(tokens)) match{
+        SyntaxParser.parseAll(SyntaxParser.pCompilationUnit ,JTokenReader(tokens, code.length)) match{
           case SyntaxParser.Success(r, _) =>
             syntaxTree() = Some(r)
           case fail: SyntaxParser.NoSuccess =>
             syntaxTree() = None
-            val errorPos = fail.next.pos match{
-              case off: OffsetPosition => off.offset
-              case EndOfTokens.EndPos => code.length-1
+            val errorPos = {
+              fail.next.asInstanceOf[JTokenReader].previous.getRange._2
             }
-            setAttr(errorAttr, errorPos, errorPos+1 , replace = false)
+            setAttr(errorStyle, errorPos-2, errorPos-1 , replace = false)
         }
 
 
@@ -131,8 +134,7 @@ object CodePane {
 
   private val context = StyleContext.getDefaultStyleContext
   def colorAtrr(color: Color) = context.addAttribute(context.getEmptySet, StyleConstants.Foreground, color)
-  def backgroundAtrr(color: Color) = context.addAttribute(context.getEmptySet, StyleConstants.Background, color)
-
+  val errorStyle = context.addAttribute(context.getEmptySet, StyleConstants.Background, Color.red)
 
   def main(args: Array[String]): Unit = {
     import scala.io.Source

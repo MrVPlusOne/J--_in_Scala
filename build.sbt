@@ -14,5 +14,6 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.0.0" % "test",
   "org.scalacheck" %% "scalacheck" % "1.13.2" % "test",
   "com.lihaoyi" %% "scalarx" % "0.3.1"
+//  "net.bytebuddy" % "byte-buddy" % "1.4.31"
 )
     

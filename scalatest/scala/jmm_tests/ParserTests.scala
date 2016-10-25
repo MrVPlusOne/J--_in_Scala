@@ -15,27 +15,27 @@ class ParserTests extends MyTest{
 
   val p = SyntaxParser
 
-  def parseExpr(code: String) = p.parseSource(p.pExpr, code)
+  def parseExpr(code: String) = p.parseString(p.pExpr, code)
 
   "expression parser" should {
     "parse basic elements" in {
-      p.parseSource(p.pIdent, "abc") shouldBe TIdentifier("abc")
-      p.parseSource(p.pLiteral, "5").literal shouldBe TInt(5)
-      p.parseSource(p.pOp("*"), "*") shouldBe TOp("*")
-      p.parseSource(p.pQualified, "A.bc.e") shouldBe Pen.qualified("A.bc.e")
+      p.parseString(p.pIdent, "abc") shouldBe TIdentifier("abc")
+      p.parseString(p.pLiteral, "5").literal shouldBe TInt(5)
+      p.parseString(p.pOp("*"), "*") shouldBe TOp("*")
+      p.parseString(p.pQualified, "A.bc.e") shouldBe Pen.qualified("A.bc.e")
 
-      p.parseSource(p.pType, "boolean[]") shouldBe BasicTypeArray(Pen.boolean_type, 1)
-      p.parseSource(p.pType, "a") shouldBe RefTypeOrArray(Pen.qualified("a"), 0)
-      p.parseSource(p.pType, "a.B.C[][]") shouldBe RefTypeOrArray(Pen.qualified("a.B.C"), 2)
-      p.parseSource(p.pType, "String") shouldBe RefTypeOrArray(Pen.qualified("String"), 0)
+      p.parseString(p.pType, "boolean[]") shouldBe BasicTypeArray(Pen.boolean_type, 1)
+      p.parseString(p.pType, "a") shouldBe RefTypeOrArray(Pen.qualified("a"), 0)
+      p.parseString(p.pType, "a.B.C[][]") shouldBe RefTypeOrArray(Pen.qualified("a.B.C"), 2)
+      p.parseString(p.pType, "String") shouldBe RefTypeOrArray(Pen.qualified("String"), 0)
 
 
-      p.parseSource(p.pArguments, "(1+a, 'a')") shouldBe JArguments(
+      p.parseString(p.pArguments, "(1+a, 'a')") shouldBe JArguments(
         Pen.plus(Pen.int(1), Pen.qualified("a")),
         JLiteral(TChar("a"))
       )
 
-      p.parseSource(p.pModifiers, "public static") shouldBe
+      p.parseString(p.pModifiers, "public static") shouldBe
         Modifiers(IndexedSeq(TReserve(JKeyword.k_public), TReserve(JKeyword.k_static)))
 
 
@@ -67,20 +67,18 @@ class ParserTests extends MyTest{
 
     "parse post expressions" in {
       parseExpr("a[1]") shouldBe PostExpr(Pen.qualified("a"), IndexedSeq(JArraySelector(Pen.int(1))))
-      p.parseSource(p.pExpr, "(a).m(1)") shouldBe PostExpr(
+      p.parseString(p.pExpr, "(a).m(1)") shouldBe PostExpr(
         Pen.qualified("a"),
         IndexedSeq(JQualifiedSelector(Pen.qualified("m"), Some(JArguments(Pen.int(1))))))
     }
 
     "parse local declarations" in {
-      p.parseSource(p.pVarDecl, "int a = 32;") shouldBe VarDecl(
-        Pen.int_type,
-        TIdentifier("a"),
+      p.parseString(p.pVarDecl, "int a = 32;") shouldBe VarDecl(
+        FormalParameter(Pen.int_type, TIdentifier("a")),
         Some(ExprInit(Pen.int(32)))
       )
-      p.parseSource(p.pVarDecl, "int a = {b,{}};") shouldBe VarDecl(
-        Pen.int_type,
-        TIdentifier("a"),
+      p.parseString(p.pVarDecl, "int a = {b,{}};") shouldBe VarDecl(
+        FormalParameter(Pen.int_type, TIdentifier("a")),
         Some(ArrayInit(
           ExprInit(Pen.qualified("b")),
           ArrayInit()
@@ -91,11 +89,11 @@ class ParserTests extends MyTest{
 
   "block parser" should{
     "parse if" in {
-      p.parseSource(p.pBlockStatement, """if(1<2) print("Ok!");""")
-      p.parseSource(p.pBlockStatement, """if(true) return a; else {{ }}""")
+      p.parseString(p.pBlockStatement, """if(1<2) print("Ok!");""")
+      p.parseString(p.pBlockStatement, """if(true) return a; else {{ }}""")
     }
     "parse while" in {
-      p.parseSource(p.pWhile,
+      p.parseString(p.pWhile,
         """while(i<5){
           | int a = i * 2;
           | a += "!";
@@ -107,7 +105,7 @@ class ParserTests extends MyTest{
 
   "integrated parser" should{
     "parse an empty class" in {
-      p.parseSource(p.pCompilationUnit,
+      p.parseString(p.pCompilationUnit,
         """package a.empty;
           |
           |abstract class Empty{
@@ -125,7 +123,9 @@ class ParserTests extends MyTest{
             None,
             body = IndexedSeq(
               Modifiers(IndexedSeq(TReserve(k_protected))) -> FieldMemberDecl(
-                VarDecl(RefTypeOrArray(Pen.qualified("String"), 0), TIdentifier("a"), initializer = None)
+                VarDecl(
+                  FormalParameter(RefTypeOrArray(Pen.qualified("String"), 0), TIdentifier("a")),
+                  initializer = None)
               ),
               Modifiers(IndexedSeq(TReserve(k_private))) -> MethodMemberDecl(
                 Pen.int_type, TIdentifier("test"), IndexedSeq(), body = None
@@ -138,7 +138,7 @@ class ParserTests extends MyTest{
 
     "parse source file tests" in {
       passSources.foreach{ case (src, file) =>
-        p.parseSource(p.pCompilationUnit, src.mkString, file)
+        p.parseString(p.pCompilationUnit, src.mkString, file)
       }
     }
   }

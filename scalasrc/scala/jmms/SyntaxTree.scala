@@ -71,6 +71,12 @@ object SyntaxTree{
     override def nodeName: String = "Field"
   }
 
+  case class FormalParameter(jType: JType, identifier: TIdentifier) extends SyntaxTree{
+    override def children: IndexedSeq[SyntaxTree] = IndexedSeq(jType, identifier)
+
+    override def nodeName: String = "Param"
+  }
+
   case class ConstructorDecl(name: TIdentifier,
                              formalParams: IndexedSeq[FormalParameter], block: Block) extends MemberDecl{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(name) ++ formalParams :+ block
@@ -78,8 +84,8 @@ object SyntaxTree{
     override def nodeName: String = "Constructor"
   }
 
-  case class VarDecl(jType: JType, identifier: TIdentifier, initializer: Option[VarInit]) extends SyntaxTree{ //todo: array init
-  override def children: IndexedSeq[SyntaxTree] = jType +: identifier +: initializer.toIndexedSeq
+  case class VarDecl(formalParameter: FormalParameter, initializer: Option[VarInit]) extends SyntaxTree {
+  override def children: IndexedSeq[SyntaxTree] = formalParameter +: initializer.toIndexedSeq
 
     override def nodeName: String = "Variable Decl"
   }
@@ -137,12 +143,6 @@ object SyntaxTree{
   }
 
 
-  case class FormalParameter(jType: JType, identifier: TIdentifier) extends SyntaxTree{
-    override def children: IndexedSeq[SyntaxTree] = IndexedSeq(jType,identifier)
-
-    override def nodeName: String = "Formal Param"
-  }
-
   case object JNull
 
   case class JArguments(args: IndexedSeq[JExpr]) extends SyntaxTree{
@@ -165,6 +165,10 @@ object SyntaxTree{
     override def children: IndexedSeq[SyntaxTree] = parts
 
     override def nodeName: String = "Qualified"
+
+    def toPath(sep: String) = parts.map(_.data).mkString(sep)
+
+    def toDotPath = toPath(".")
   }
 
   object QualifiedIdent{
@@ -177,15 +181,21 @@ object SyntaxTree{
 
   case class JBasicType(t: TReserve) extends JType{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(t)
+
+    override def toString: String = s"basic type '${JKeyword.keywordArray(t.data.id)}'"
   }
 
   case class BasicTypeArray(t: JBasicType, arrayDimensions: Int) extends JType{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(t)
+
+    override def toString: String = s"array type '$t${"[]"*arrayDimensions}'"
   }
 
   /** a reference type, possibly an array */
   case class RefTypeOrArray(ty: QualifiedIdent, arrayDimensions: Int) extends JType{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(ty)
+
+    override def toString: String = s"ref type '${ty.toDotPath}${"[]"*arrayDimensions}'"
   }
 
 
@@ -301,30 +311,21 @@ object SyntaxTree{
   }
 }
 
-trait SyntaxTree {
+trait SyntaxTree extends Ranged{
   def rangeContains(dot: Int): Boolean = {
-    getRange match{
-      case Some(range) =>
-        val (l,r) = range
-        l<=dot && dot < r
-      case None => false
-    }
-
+    val (l,r) = getRange
+    l<=dot && dot < r
   }
 
   def children: IndexedSeq[SyntaxTree]
 
-  lazy val _range: Option[(Int, Int)] =
-    if(children.nonEmpty)
-      for{
-        l <- children.head.getRange
-        r <- children.last.getRange
-      } yield (l._1, r._2)
-    else None
-
-  def getRange: Option[(Int, Int)] = _range
-
   def nodeName: String
 
   protected def single(node: SyntaxTree) = IndexedSeq(node)
+
+  def foreach(f: SyntaxTree => Unit) =
+    if(children.nonEmpty){
+      f(this)
+      children.foreach(f)
+    }
 }

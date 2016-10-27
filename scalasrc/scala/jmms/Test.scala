@@ -16,9 +16,10 @@ object Test {
       val semanP = new SemanticsAnalysis()
       val r = SyntaxParser.parsePackage(code)
 
-      val sPackage = semanP.analyzeTypeContext(r, TypeContext.empty())
+      val sPackage = semanP.analyzeTypeContext(r, TypeContext.default())
       semanP.fullyAnalyze(sPackage)
-      assert(semanP.currentErrors().isEmpty, semanP.currentErrors().foreach(_.print()))
+      semanP.currentErrors().foreach(_.print())
+      assert(semanP.currentErrors().isEmpty, "should be no errors")
       sPackage
     }
 
@@ -53,7 +54,7 @@ object Test {
       """.stripMargin
 
     val sPackage = fullAnalyze(src)
-    val sb = sPackage.classes.head.localStaticMethods.values.head.sBlock
+    val sb = sPackage.classes.head.localStaticMethods.values.find(_.signature.name == "fib").head.sBlock
     println(sb)
 
   }

@@ -1,13 +1,14 @@
 package jmm_tests
 
 import jmms.SBasicType._
-import jmms.SemanticsTree.InternalType
+import jmms.SemanticTree.InternalType
 import jmms._
 
 /**
   * Created by weijiayi on 24/10/2016.
   */
 class SemanticTests extends MyTest{
+
   "Internal Type" should{
     "answer inheritance relation" in {
       val a = InternalType("pkg","A", isAbstract = false)
@@ -18,6 +19,15 @@ class SemanticTests extends MyTest{
 
       assert(b.isChildOf(a))
       assert(! a.isChildOf(b))
+    }
+
+    "pass common type tests" in {
+      SInt + SInt shouldBe SInt
+      SVoid + SInt shouldBe SInt
+      SVoid + SNoType shouldBe SNoType
+      SNoType + SInt shouldBe SNoType
+      SInt + SNoType shouldBe SNoType
+      SInt + SVoid shouldBe SInt
     }
   }
 
@@ -34,7 +44,7 @@ class SemanticTests extends MyTest{
       val semanP = new SemanticsAnalysis()
       val r = SyntaxParser.parsePackage(code)
 
-      val sPackage = semanP.analyzeTypeContext(r, TypeContext.empty())
+      val sPackage = semanP.analyzeTypeContext(r, TypeContext.default())
       assert(semanP.currentErrors().isEmpty, "Errors: \n" + semanP.currentErrors().mkString("\n"))
       sPackage
     }
@@ -43,7 +53,6 @@ class SemanticTests extends MyTest{
       val src =
         """
           |package Main;
-          |import java.lang.Object;
           |
           |class A extends java.lang.Object {
           |
@@ -57,7 +66,6 @@ class SemanticTests extends MyTest{
       val src =
         """
           |package Main;
-          |import java.lang.Object;
           |
           |class A extends C {
           |
@@ -87,7 +95,6 @@ class SemanticTests extends MyTest{
       val src =
         """
           |package Main;
-          |import java.lang.String;
           |
           |class A {
           |  public static void main(int arg){
@@ -112,11 +119,60 @@ class SemanticTests extends MyTest{
 
       val a = ctx.locals("A").asInstanceOf[InternalType]
       a.localStaticMethods("main" -> IndexedSeq(SInt)).signature.returns shouldBe SVoid
-      a.localInstanceFields("a").signature.sType shouldBe SInt
+      a.localInstanceFields("a").signature.fieldType shouldBe SInt
       a.localInstanceMethods("jump", IndexedSeq(SInt)).signature.returns shouldBe ExternalType.string
-      a.localStaticFields("cool").signature.sType shouldBe SBoolean
+      a.localStaticFields("cool").signature.fieldType shouldBe SBoolean
       assert{ a.constructors.get(IndexedSeq(SBoolean)).isDefined }
     }
+
   }
+
+  "fully analyzing" should {
+
+    "type check fibnacci example" in {
+      val src =
+        """
+          |package Main;
+          |
+          |class A {
+          |  public static void main(int arg){
+          |    int a = 3;
+          |    a = a + 2;
+          |  }
+          |
+          |  static int base = 1;
+          |
+          |  static int fib(int n){
+          |    if(n<2)
+          |      return A.base;
+          |    else
+          |      return fib(n-1) + fib(n-2);
+          |  }
+          |}
+        """.stripMargin
+
+      val sPackage = fullyAnalyze(src)
+      val sb = sPackage.classes.head.localStaticMethods.values.find(_.signature.name == "fib").head.sBlock
+      println(sb)
+    }
+
+    "type check example files" in {
+      passSources.foreach{
+        case (src, srcName) =>
+          val sPackage = fullyAnalyze(src.mkString, srcName)
+
+      }
+    }
+
+  }
+
+
+
+
+
+
+
+
+
 
 }

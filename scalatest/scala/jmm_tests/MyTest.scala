@@ -2,6 +2,7 @@ package jmm_tests
 
 import java.io.File
 
+import jmms.{SemanticsAnalysis, SyntaxParser, TypeContext}
 import org.scalatest.{Matchers, WordSpec}
 
 import scala.io.Source
@@ -25,4 +26,5 @@ trait MyTest extends WordSpec with Matchers {
       map(f => (Source.fromFile(f), f.getName))
   }
 
+  def fullyAnalyze(code: String, srcName: String = "Not specified") = SemanticsAnalysis.fullyAnalyze(code, srcName)
 }

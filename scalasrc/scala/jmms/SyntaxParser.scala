@@ -181,7 +181,7 @@ object SyntaxParser extends Parsers {
   def pBlock: RangedParser[Block] =
     pSep("{") ~> rep(pBlockStatement) <~ pSep("}") ^^ {x => Block(x.toIndexedSeq)}
 
-  def pBlockStatement: RangedParser[BlockStatement] = (pVarDecl ^^ LocalVarDecl) | pStatement
+  def pBlockStatement: RangedParser[Statement] = (pVarDecl ^^ LocalVarDecl) | pStatement
 
   def pVarDecl: RangedParser[VarDecl] =
     pFormalParameter ~ opt(pOp("=") ~!> pVarInit) <~ pSep(";") ^^ { case p~init => VarDecl(p, init)}
@@ -194,12 +194,26 @@ object SyntaxParser extends Parsers {
 
   def pIf: RangedParser[IfStatement] = logName("if") {
     kw.k_if ~!> pParenExpr ~ pStatement ~ opt(kw.k_else ~!> pStatement) ^^ {
-      case cond~b1~b2 => IfStatement(cond,b1,b2)
+      case cond~b1~b2 =>
+        val b1Block = b1 match {
+          case b: Block => b
+          case _ => Block(IndexedSeq(b1)) withRangeOf b1
+        }
+        val b2Block = b2.map {
+          case b: Block => b
+          case b2 => Block(IndexedSeq(b2)) withRangeOf b2
+        }
+        IfStatement(cond,b1Block,b2Block)
     }
   }
 
   def pWhile: RangedParser[WhileStatement] =
-    kw.k_while ~!> pParenExpr ~ pStatement ^^ {case cond~b => WhileStatement(cond, b)}
+    kw.k_while ~!> pParenExpr ~ pStatement ^^ {case cond~b =>
+      val block = b match {
+        case s: Statement => Block(IndexedSeq(s)) withRangeOf s
+        case b: Block => b
+      }
+      WhileStatement(cond, block)}
 
   def pReturn: RangedParser[ReturnStatement] =
     kw.k_return ~!> opt(pExpr) <~ pSep(";") ^^ ReturnStatement
@@ -215,7 +229,8 @@ object SyntaxParser extends Parsers {
   def parseBinary(nextLayer: RangedParser[JExpr], ops: String*): RangedParser[JExpr] = nextLayer ~ rep(pOp(ops :_*) ~! nextLayer) ^^ {
     case p1 ~ List() => p1
     case p1 ~ ((op2 ~ p2) ::ps) =>
-      ps.foldLeft(BinaryExpr(op2, p1,p2)){ case (acc, (op~r)) => BinaryExpr(op, acc, r)}
+      ps.foldLeft(BinaryExpr(op2,p1,p2).withRange(p1.getRange._1, p2.getRange._2, p1.pos))
+      { case (acc, (op~r)) => BinaryExpr(op, acc, r).withRange(acc.getRange._1, r.getRange._2, acc.pos)}
   }
 
   def pAssignment= parseBinary(pConditionOr, "=", "+=", "-=", "*=", "/=")

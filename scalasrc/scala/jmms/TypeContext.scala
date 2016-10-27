@@ -1,8 +1,7 @@
 package jmms
 
 import jmms.JToken.TReserve
-import jmms.SBasicType.{SBoolean, SChar, SInt, SVoid}
-import jmms.SemanticsTree.InternalType
+import jmms.SBasicType.{SBoolean, SChar, SInt}
 import jmms.SyntaxTree._
 
 case class TypeContext(locals: Map[String, SRefType], loadExt: String => Option[SRefType]) {
@@ -26,14 +25,14 @@ case class TypeContext(locals: Map[String, SRefType], loadExt: String => Option[
       case BasicTypeArray(t: JBasicType, arrayDimensions: Int) =>
         for{
           b <- resolve(t)
-          t <- loadExt("["*arrayDimensions + b.className)
+          t <- loadExt("["*arrayDimensions + b.lDotName)
         } yield t
       case RefTypeOrArray(q, dim) =>
         if(dim == 0)
           resolve(q)
         else{
           resolve(q).flatMap{ b =>
-            loadExt("[" * dim + b.className)
+            loadExt("[" * dim + b.lDotName)
           }
         }
 
@@ -41,21 +40,24 @@ case class TypeContext(locals: Map[String, SRefType], loadExt: String => Option[
   }
 
   def +(s: SRefType) = {
-    TypeContext(locals + (s.dotName -> s) + (s.simpleName -> s), loadExt)
+    TypeContext(locals + (s.queryName -> s) + (s.simpleName -> s), loadExt)
   }
 
   def ++(ss: Seq[SRefType]) = {
-    val newLocals = locals ++ ss.map(s => s.dotName -> s) ++ ss.map(s => s.simpleName -> s)
+    val newLocals = locals ++ ss.map(s => s.queryName -> s) ++ ss.map(s => s.simpleName -> s)
     TypeContext(newLocals, loadExt)
   }
 }
 
 object TypeContext{
-  def empty() = TypeContext(Map(), name => {
-    try {
-      Some(ExternalType(Class.forName(name)))
-    } catch {
-      case _: ClassNotFoundException => None
-    }
-  })
+  def default() = {
+    val ctx = TypeContext(Map(), name => {
+      try {
+        Some(ExternalType(Class.forName(name)))
+      } catch {
+        case _: ClassNotFoundException => None
+      }
+    })
+    ctx ++ Seq(ExternalType.obj, ExternalType.string, ExternalType.system)
+  }
 }

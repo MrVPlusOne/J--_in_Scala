@@ -22,7 +22,7 @@ trait Ranged{
     withRange(start, until, ranged.pos)
   }
 
-  def getRange = range.get
+  def getRange = range.getOrElse(throw new Exception(s"getRange on unset ranged: ${toString}"))
 
   def rangeSize = {
     val (start, end) = getRange
@@ -110,7 +110,7 @@ object Tokenizer extends JavaTokenParsers {
   def pCharLiteral = ranged( """'((\\[nrtb'"\\])|[^'\\\n])'""".r ^^
     {s => TChar(s.substring(1, s.length-1))} ) withFailureMessage  "Char literal expected"
 
-  def pStringLiteral = ranged(stringLiteral ^^ TString)
+  def pStringLiteral = ranged(stringLiteral ^^ {s => TString(s.stripPrefix("\"").stripSuffix("\"")) })
 
   def pIntLiteral = ranged( wholeNumber ^^ (s => TInt(s.toInt)))
 

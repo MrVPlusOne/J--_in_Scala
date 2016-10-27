@@ -110,31 +110,28 @@ object SyntaxTree{
     def apply(inits: VarInit*) = new ArrayInit(inits.toIndexedSeq)
   }
 
-  /** a statement that can appear in a code block */
-  sealed trait BlockStatement extends SyntaxTree
-
   /** a block statement, but can't be variable declaration
     * (because variable declarations must sit in code blocks) */
-  sealed trait Statement extends BlockStatement
+  sealed trait Statement extends SyntaxTree
 
-  case class LocalVarDecl(variableDecl: VarDecl) extends BlockStatement{
+  case class LocalVarDecl(variableDecl: VarDecl) extends Statement{
     override def children: IndexedSeq[SyntaxTree] = single(variableDecl)
 
     override def nodeName: String = "Local Decl"
   }
 
 
-  case class Block(children: IndexedSeq[BlockStatement]) extends Statement {
+  case class Block(children: IndexedSeq[Statement]) extends Statement {
     override def nodeName: String = "Block"
   }
 
-  case class IfStatement(condition: JExpr, thenBranch: Statement, elseBranch: Option[Statement]) extends Statement{
+  case class IfStatement(condition: JExpr, thenBranch: Block, elseBranch: Option[Block]) extends Statement{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(condition, thenBranch) ++ elseBranch.toIndexedSeq
 
     override def nodeName: String = "If Statement"
   }
 
-  case class WhileStatement(condition: JExpr, body: Statement) extends Statement{
+  case class WhileStatement(condition: JExpr, body: Block) extends Statement{
     override def children: IndexedSeq[SyntaxTree] = IndexedSeq(condition, body)
 
     override def nodeName: String = "While Statement"
@@ -177,6 +174,8 @@ object SyntaxTree{
 
   object QualifiedIdent{
     def apply(parts: TIdentifier*) = new QualifiedIdent(parts.toIndexedSeq)
+
+    def dotPath(parts: TIdentifier*) = parts.map(_.data).mkString(".")
   }
 
   sealed trait JType extends SyntaxTree{
@@ -242,28 +241,31 @@ object SyntaxTree{
     }
 
 
-    sealed trait UnaryExpr extends JExpr //todo: ++
+    sealed trait UnaryExpr extends JExpr{
+      def expr: JExpr
+      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(expr)
+    } //todo: ++
 
     case class UnaryNegate(expr: JExpr) extends UnaryExpr{
-      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(expr)
+
 
       override def nodeName: String = "-"
     }
 
-    case class UnaryNot(unary: JExpr) extends UnaryExpr{
-      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(unary)
-
+    case class UnaryNot(expr: JExpr) extends UnaryExpr{
       override def nodeName: String = "Unary!"
     }
 
-    case class BasicCast(basicType: JBasicType, unaryExpression: JExpr) extends UnaryExpr{
-      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(basicType, unaryExpression)
+    case class BasicCast(basicType: JBasicType, expr: JExpr) extends UnaryExpr{
+
+      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(basicType, expr)
 
       override def nodeName: String = "Basic Cast"
     }
 
-    case class RefTypeCast(refType: JType, unaryExpression: JExpr) extends UnaryExpr{
-      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(refType, unaryExpression)
+    case class RefTypeCast(refType: JType, expr: JExpr) extends UnaryExpr{
+
+      override def children: IndexedSeq[SyntaxTree] = IndexedSeq(refType, expr)
 
       override def nodeName: String = "Ref Cast"
     }
@@ -328,9 +330,9 @@ trait SyntaxTree extends Ranged{
 
   protected def single(node: SyntaxTree) = IndexedSeq(node)
 
-  def foreach(f: SyntaxTree => Unit) =
+  def foreach(f: SyntaxTree => Unit): Unit =
     if(children.nonEmpty){
       f(this)
-      children.foreach(f)
+      children.foreach(_.foreach(f))
     }
 }

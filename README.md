@@ -32,4 +32,4 @@ It's written using Java Swing's StyledDocument and JTextPane.
 Currently it has some support for syntax highlighting and error reporting, and it can display the syntax tree structure corresponding 
 to current cursor location. More functionality may be added in the future. 
 
-![Code editor](images/code_editor.png)
+<img src="images/code_editor.png" alt="Code Editor" style="width: 500px;"/>

@@ -32,6 +32,10 @@ class SemanticTests extends MyTest{
   }
 
   "External Type" should {
+    "create basic types" in {
+      ExternalType(classOf[Int]) shouldBe SInt
+    }
+
     "resolve some methods" in {
       val toString = ExternalType.string.getMethod("toString", IndexedSeq()).get
       toString.isStatic shouldBe false

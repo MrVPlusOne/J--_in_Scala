@@ -1,5 +1,6 @@
 package jmms
 
+import cafebabe.AbstractByteCodes
 import jmms.JToken.{TIdentifier, TReserve}
 import jmms.SBasicType._
 import jmms.SemanticTree.SExpr._
@@ -117,15 +118,17 @@ class SemanticsAnalysis {
                       cl.mkNewMethod(method)
                   }
                 }
-              case ConstructorDecl(name, formalParameters, _) =>
+              case ConstructorDecl(name, formalParameters, body) =>
                 if (name != dc.name) {
                   newError("method should have return type", name)
                 } else {
                   val params = resolveParams(formalParameters, fileContext)
                   if (cl.getConstructor(params).isDefined)
                     newError("Constructor with the same signature already defined", name)
-                  else
-                    cl.mkNewConstructor(InternalConstructor(ConstructorSignature(cl, params)))
+                  else {
+                    cl.mkNewConstructor(InternalConstructor(ConstructorSignature(cl, params),
+                      formalParameters.map(_.identifier), body))
+                  }
                 }
             }
           } catch {
@@ -141,41 +144,63 @@ class SemanticsAnalysis {
 
   def fullyAnalyze(sPackage: SPackage) {
     val typeContext = sPackage.typeContext
-    sPackage.classes.foreach(ty => {
-      ty.localStaticMethods.values.foreach(sm => {
-        val args = sm.signature.args
-        var initContext = BlockContext(typeContext, Map(), 0, thisType = ty , isStatic = true)
-        args.zipWithIndex.foreach{
-          case (t, i) =>
-            initContext += initContext.createLocalVar(sm.paramNames(i).data, t, sm.paramNames(i))
+
+    def methodSBlock(args: IndexedSeq[SType], argNames: IndexedSeq[TIdentifier], returnType: SType, impl: Option[Block],
+                       isStatic: Boolean, thisClass: SRefType): Option[SBlock] = {
+      val startIndex = if (isStatic) 0 else 1
+      var initContext = BlockContext(typeContext, Map(), startIndex, thisType = thisClass, isStatic = false)
+      args.zipWithIndex.foreach {
+        case (t, i) =>
+          initContext += initContext.createLocalVar(argNames(i).data, t, argNames(i))
+      }
+      try {
+        impl.map { jBlock =>
+          val b = pBlock(
+            jBlock,
+            initContext)
+          requireReturnType(b, returnType)
+          b
         }
-        sm.sBlock = try {
-          sm.impl.map{ jBlock =>
-            val b = pBlock(
-              jBlock,
-              initContext)
-            requireReturnType(b, sm.signature.returns)
-            b
-          }
-        } catch {
-          case e: SemanticError =>
-            errorList += e
-            None
-        }
+      } catch {
+        case e: SemanticError =>
+          errorList += e
+          None
+      }
+    }
+
+    sPackage.classes.foreach(cl => {
+      cl.allMethods.foreach(sm => {
+        val sig = sm.signature
+        sm.sBlock = methodSBlock(sig.args, sm.paramNames, sig.returns, sm.impl, sig.isStatic, sig.classType)
+      })
+
+      cl.constructors.values.foreach(cn => {
+        val sig = cn.signature
+        methodSBlock(sig.args, cn.paramNames, SVoid, Some(cn.impl), isStatic = false, sig.classType).foreach(cn.sBlock = _)
       })
     })
+
   }
 
-  def pBlock(block: Block, blockCtx: BlockContext): SBlock = {
-    var ctx = blockCtx
+  def pBlock(block: Block, originalCtx: BlockContext): SBlock = {
+    var ctx = originalCtx
     var newVars = IndexedSeq[SLocalVar]()
     var statements = ListBuffer[SemanticStatement]()
     block.children.foreach{
-      case d@LocalVarDecl(VarDecl(formalParameter, initializer)) =>
+      case d @ LocalVarDecl(VarDecl(formalParameter, initializer)) =>
         val sType = ctx.resolveType(formalParameter.jType)
         val v = ctx.createLocalVar(formalParameter.identifier.data, sType, d)
         newVars :+= v
         ctx += v
+        initializer.foreach{
+          case ExprInit(expr) =>
+            statements += ExprStatement(SAssign(v, pExpr(expr, ctx)))
+          case ArrayInit(varInits) => varInits.zipWithIndex.foreach {
+            case (ExprInit(expr), idx) =>
+              statements += ExprStatement(SArrayStore(v, SIntConst(idx), pExpr(expr, ctx)))
+            case _ => ??? // nested array init unsupported yet
+          }
+        }
       case s: Statement =>
         val sTyped: SemanticStatement = s match {
           case b1: Block =>
@@ -183,16 +208,16 @@ class SemanticsAnalysis {
           case jExpr: JExpr =>
             ExprStatement(pExpr(jExpr, ctx))
           case IfStatement(cond, thenBranch, elseBranch) =>
-            val sCond = pExpr(cond, blockCtx)
-            val sThen = pBlock(thenBranch, blockCtx)
-            val sElse = elseBranch.map(e => pBlock(e, blockCtx))
+            val sCond = pExpr(cond, ctx)
+            val sThen = pBlock(thenBranch, ctx)
+            val sElse = elseBranch.map(e => pBlock(e, ctx))
             SIf(sCond, sThen, sElse)
           case WhileStatement(cond, body) =>
-            val sCond = pExpr(cond, blockCtx)
-            val sBody = pBlock(body, blockCtx)
+            val sCond = pExpr(cond, ctx)
+            val sBody = pBlock(body, ctx)
             SWhile(sCond, sBody)
           case ReturnStatement(expr) =>
-            val se = expr.map(e => pExpr(e, blockCtx))
+            val se = expr.map(e => pExpr(e, ctx))
             SReturn(se)
           case _: LocalVarDecl => throw new Exception("Impossible!")
         }
@@ -214,6 +239,8 @@ class SemanticsAnalysis {
         case _ => throw SemanticError("Unresolved literal", jExpr)
 
       }
+      case JThis => blockContext.contextThis.getOrElse{
+        throw SemanticError("Can't access 'this' from within static methods", jExpr)}
       case q: QualifiedIdent =>
         blockContext.resolveQualified(q.parts) match {
           case Left(t) => throw SemanticError("Type appears in variable place", q)
@@ -222,15 +249,29 @@ class SemanticsAnalysis {
       case BinaryExpr(op, l ,r) =>
         val sl = pExpr(l, blockContext)
         val sr = pExpr(r, blockContext)
+
+        def stringConcat(sl: SExpr, sr: SExpr) = {
+          if(sl.exprType == sr.exprType && sl.exprType == SInt) SIAdd(sl, sr)
+          else SStringConcat(SConvertString.convert(sl), SConvertString.convert(sr))
+        }
+
+        def assignLeft(sExpr: SExpr) = SAssign(sl, sExpr)
+
         op.data match {
-          case "+" if sl.exprType == SInt => SIAdd(sl, sr)
-          case "+" => SStringConcat(sl, sr)
+          case "+" => stringConcat(sl,sr)
+          case "+=" => assignLeft(stringConcat(sl, sr))
           case "-" => SISub(sl, sr)
+          case "-=" =>  assignLeft(SISub(sl, sr))
           case "*" => SIMul(sl, sr)
+          case "*=" => assignLeft(SIMul(sl, sr))
           case "/" => SIDiv(sl, sr)
+          case "/=" => assignLeft(SIDiv(sl, sr))
           case "=" => SAssign(sl, sr)
-          case "<" => SLessThan(sl, sr)
-          case "<=" => SLessOrEqual(sl, sr)
+          case "<" => SBinaryIntComp(sl, sr, AbstractByteCodes.If_ICmpLt)
+          case "<=" => SBinaryIntComp(sl, sr, AbstractByteCodes.If_ICmpLe)
+          case "==" => SBinaryIntComp(sl, sr, AbstractByteCodes.If_ICmpEq)
+          case ">" => SBinaryIntComp(sl, sr, AbstractByteCodes.If_ICmpGt)
+          case ">=" => SBinaryIntComp(sl, sr, AbstractByteCodes.If_ICmpGe)
           case _ => throw SemanticError("Unresolved operator", op)
         }
       case u: UnaryExpr =>
@@ -245,43 +286,98 @@ class SemanticsAnalysis {
             SCast(sExpr, t)
 
         }
-      case MethodCall(f, args, isSuper) =>
-        val sArgs = args.args.map(jExpr => pExpr(jExpr, blockContext))
-        val argTypes = sArgs.map(_.exprType)
-        if(f.parts.length == 1){
-          val fName = f.parts.head
-          val m = blockContext.thisType.getMethod(fName.data, argTypes).getOrElse{
-            throw SemanticError(s"Can't resolve method $fName with such signature", f)
-          }
-          StaticMethodCall(m, sArgs)
-        } else {
-          val mName = f.parts.last.data
-          blockContext.resolveQualified(f.parts.init) match {
-            case Left(t) =>
-              val method = t.getStaticMethod(mName, argTypes).getOrElse{
-                throw SemanticError(s"Can't resolve static method $mName with such signature",f.parts.last)
+      case withArgs: JArgsExpr =>
+        val (sArgs, argTypes) = resolveArguments(withArgs.args, blockContext)
+        withArgs match {
+          case MethodCall(f, _, isSuper) =>
+            if(f.parts.length == 1){
+              val fName = f.parts.head
+              val m = blockContext.thisType.getMethod(fName.data, argTypes).getOrElse{
+                throw SemanticError(s"Can't resolve method $fName with such signature", f)
               }
-              StaticMethodCall(method, sArgs)
-            case Right(v) => v.exprType match {
-              case ref: SRefType =>
-                val method = ref.getInstanceMethod(mName, argTypes).getOrElse {
-                  throw SemanticError(s"Can't resolve instance method $mName with such signature", f.parts.last)
+              if(m.isStatic)
+                StaticMethodCall(m, sArgs)
+              else {
+                InstanceMethodCall(blockContext.contextThis.getOrElse{
+                  throw SemanticError("Can't call instance method within a static method", f)},
+                  m, sArgs)
+              }
+            } else {
+              val mName = f.parts.last.data
+              blockContext.resolveQualified(f.parts.init) match {
+                case Left(t) =>
+                  val method = t.getStaticMethod(mName, argTypes).getOrElse{
+                    throw SemanticError(s"Can't resolve static method $mName with such signature",f.parts.last)
+                  }
+                  StaticMethodCall(method, sArgs)
+                case Right(v) => v.exprType match {
+                  case ref: SRefType =>
+                    val method = ref.getInstanceMethod(mName, argTypes).getOrElse {
+                      throw SemanticError(s"Can't resolve instance method $mName with such signature", f.parts.last)
+                    }
+                    InstanceMethodCall(v, method, sArgs)
+                  case _ => throw SemanticError(s"Can't resolve instance method $mName on value type $v", v)
                 }
-                InstanceMethodCall(v, method, sArgs)
-              case _ => throw SemanticError(s"Can't resolve instance method $mName on value type $v", v)
+              }
             }
+
+          case JCreator(jType, _) =>
+            val creatType = blockContext.resolveType(jType)
+            SCreator(creatType, sArgs)
+
+          case c@ConstructorCall(args, isSuper) =>
+            val callOn = if(isSuper) {
+              blockContext.thisType.superClass.getOrElse(throw SemanticError("Super class not exist", c))
+            } else blockContext.thisType
+            val cons = callOn.getConstructor(argTypes).getOrElse(throw SemanticError(s"Can't resolve constructor of this signature", c))
+            SConstructorCall(
+              blockContext.contextThis.getOrElse(throw SemanticError("Can't call constructor here", c)),
+              cons, sArgs
+            )
+
+        }
+
+      case PostExpr(body, selectors) =>
+        val sBody = pExpr(body, blockContext)
+        selectors.foldLeft(sBody){
+          case (acc, selector) => selector match {
+            case JQualifiedSelector(ident, argsOpt) =>
+              argsOpt match {
+                case Some(jArguments) =>
+                  val mName = ident.parts.last
+                  val callOn = blockContext.fieldSelectionChain(acc, ident.parts.init)
+                  callOn.exprType match {
+                    case ref: SRefType =>
+                      val (sArgs, argTyps) = resolveArguments(jArguments, blockContext)
+                      val sig = ref.getInstanceMethod(mName.data, argTyps).getOrElse(throw SemanticError(s"Can't resolve instance method ${mName.data} with such signature $jArguments", jArguments))
+                      InstanceMethodCall(callOn, sig, sArgs)
+                    case _ => throw SemanticError(s"Can't resolve instance method $mName on value $callOn", callOn)
+                  }
+                case None =>
+                  blockContext.fieldSelectionChain(acc, ident.parts)
+              }
+            case js@JArraySelector(idx) =>
+              val sIdx = pExpr(idx, blockContext)
+              val elemType = acc.exprType match{
+                case ext: ExternalType if ext.isArrayType =>
+                  val tName = ext.javaExtendedName.drop(1)
+                  SBasicType.javaExtendedNameMap.get(tName).
+                    orElse(blockContext.typeContext.loadExt(tName)).
+                    getOrElse(throw new Exception(s"can't load external type: $tName"))
+                case sa: SArray => sa.elementType
+                case t => throw SemanticError(s"$t is not an array", js)
+              }
+              SArrayAccess(acc, sIdx, elemType)
           }
         }
-      case c@ConstructorCall(args, isSuper) =>
-        val sArgs = args.args.map(jExpr => pExpr(jExpr, blockContext))
-        val argTypes = sArgs.map(_.exprType)
-        val callOn = if(isSuper) {
-          blockContext.thisType.superClass.getOrElse(throw SemanticError("Super class not exist", c))
-        } else blockContext.thisType
-        val cons = callOn.getConstructor(argTypes).getOrElse(throw SemanticError(s"Can't resolve constructor of this signature", c))
-        SConstructorCall(cons, sArgs)
     }
     result.withRangeOf(jExpr)
+  }
+
+  def resolveArguments(jArguments: JArguments, blockContext: BlockContext) = {
+    val sArgs = jArguments.args.map(jExpr => pExpr(jExpr, blockContext))
+    val argTypes = sArgs.map(_.exprType)
+    (sArgs, argTypes)
   }
 
 }
@@ -295,13 +391,14 @@ object SemanticsAnalysis{
     val sPackage = semanP.analyzeTypeContext(r, TypeContext.default())
     semanP.fullyAnalyze(sPackage)
     semanP.currentErrors().foreach(_.print())
-    assert(semanP.currentErrors().isEmpty, s"should be no analyzing error in $sourceName")
+    require(semanP.currentErrors().isEmpty, s"should be no analyzing error in $sourceName")
     sPackage
   }
 
   case class SemanticError(msg: String, parts: Seq[Ranged]) extends Throwable{
     def print(): Unit = {
       println(msg)
+      println(s"  (On part: ${parts.mkString(" and ")})")
       parts.foreach(p => println(p.pos.longString))
     }
   }
@@ -312,14 +409,6 @@ object SemanticsAnalysis{
     }
   }
 
-
-  def loadClassFromCurrentPath(name: String): Option[SRefType] = {
-    try{
-      Some(ExternalType(Class.forName(name)))
-    } catch {
-      case e: ClassNotFoundException => None
-    }
-  }
 
   def resolveParams(formalParams: IndexedSeq[FormalParameter], typeContext: TypeContext): IndexedSeq[SType] = {
     formalParams.map{

@@ -31,7 +31,8 @@ public class Series {
         int sum = a;
         int t = a;
         int i = n;
-        while (i-=1 > 1) {
+        while (i > 1) {
+            i -= 1;
             if (kind == ARITHMETIC) {
                 t += d;
             } else if (kind == GEOMETRIC) {

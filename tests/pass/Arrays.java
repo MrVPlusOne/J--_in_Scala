@@ -10,13 +10,13 @@ public class Arrays {
 
     int[] ia2 = { 3, 4, 5, 6, 7 };
 
-    int[][] iaa = { ia, ia2 };
+//    int[][] iaa = { ia, ia2 };
 
-    int[][] iaa2 = { { 1, 2, 3 }, { 1, 2, 3, 4 }, {} };
+//    int[][] iaa2 = { { 1, 2, 3 }, { 1, 2, 3, 4 }, {} };
 
     public static void main(String[] args) {
-        int[][] iaa3 = { { 1, 2, 3 }, { 1, 2, 3, 4 }, {} };
-        System.out.println((Object) iaa3);
+//        int[][] iaa3 = { { 1, 2, 3 }, { 1, 2, 3, 4 }, {} };
+//        System.out.println((Object) iaa3);
     }
 
 }

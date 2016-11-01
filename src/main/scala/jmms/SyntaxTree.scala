@@ -228,7 +228,7 @@ object SyntaxTree{
       override def nodeName: String = "this"
     }
 
-    case class JCreator(refTypeOrArray: JType, args: JArguments) extends JExpr {
+    case class JCreator(refTypeOrArray: JType, args: JArguments) extends JArgsExpr {
       override def children: IndexedSeq[SyntaxTree] = IndexedSeq(refTypeOrArray, args)
 
       override def nodeName: String = "Creator"
@@ -270,13 +270,17 @@ object SyntaxTree{
       override def nodeName: String = "Ref Cast"
     }
 
-    case class MethodCall(f: QualifiedIdent, args: JArguments, isSuper: Boolean = false) extends JExpr{
+    sealed trait JArgsExpr extends JExpr{
+      def args: JArguments
+    }
+
+    case class MethodCall(f: QualifiedIdent, args: JArguments, isSuper: Boolean = false) extends JArgsExpr {
       override def children: IndexedSeq[SyntaxTree] = IndexedSeq(f,args)
 
       override def nodeName: String = "Method Call"
     }
 
-    case class ConstructorCall(args: JArguments, isSuper: Boolean = false) extends JExpr{
+    case class ConstructorCall(args: JArguments, isSuper: Boolean = false) extends JArgsExpr {
       override def children: IndexedSeq[SyntaxTree] = IndexedSeq(args)
 
       override def nodeName: String = "Constructor Call"

@@ -26,7 +26,7 @@ a direct use of its original jar files, this project should still compile and wo
 
 ### A Swing code editor (work in progress)
 
-Run the main method from [gui/CodePane.scala](src/main/scala/gui/CodePane.scala) and you will see a code editor pop up.
+Run the main method from [CodePane.scala](src/main/scala/jmms/gui/CodePane.scala) and you will see a code editor pop up.
 It's written using Java Swing's StyledDocument and JTextPane.
 
 Currently it has some support for syntax highlighting and error reporting, and it can display the syntax tree structure corresponding 
